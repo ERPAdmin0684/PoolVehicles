@@ -4,10 +4,83 @@
   <title>Access Check</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600&display=swap');
+
     body {
-      font-family: Arial, sans-serif;
+      font-family: 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      color: #1A1A1A;
+      background-color: #F8FAFC;
       text-align: center;
       padding: 2rem;
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    h2 {
+      font-family: 'Poppins', 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: #1E40AF;
+      margin-bottom: 1rem;
+    }
+
+    .username {
+      color: #15803D;
+      font-weight: 500;
+    }
+
+    .sharepoint-access {
+      font-size: 1rem;
+      color: #7C3AED;
+      margin-bottom: 1rem;
+    }
+
+    p {
+      font-size: 1rem;
+      color: #4A4A4A;
+      margin-bottom: 1rem;
+    }
+
+    .error-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .error-card {
+      background: #FFFFFF;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+
+    .error-card h1 {
+      font-family: 'Poppins', 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: #B91C1C;
+      margin-bottom: 1rem;
+    }
+
+    .error-card p {
+      font-size: 1rem;
+      color: #4A4A4A;
+      margin-bottom: 1rem;
+    }
+
+    .error-card .contact {
+      font-size: 0.9rem;
+      color: #4A4A4A;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
     }
   </style>
   <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js"></script>
@@ -23,7 +96,7 @@
       redirectUri: window.location.href
     },
     cache: {
-      cacheLocation: 'localStorage' // Use localStorage instead of sessionStorage for better persistence
+      cacheLocation: 'localStorage'
     }
   };
 
@@ -34,13 +107,12 @@
   const msalInstance = new msal.PublicClientApplication(msalConfig);
 
   msalInstance.handleRedirectPromise().then(async (response) => {
-    console.log("Redirect promise response:", response); // Debug log
+    console.log("Redirect promise response:", response);
     let account = response?.account || msalInstance.getAllAccounts()[0];
 
     if (!account) {
       console.log("No account found, attempting login...");
       try {
-        // Try loginPopup for desktop, loginRedirect for mobile
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         if (isMobile) {
           console.log("Mobile device detected, using redirect...");
@@ -64,17 +136,19 @@
     }
 
     const email = account.username;
-    console.log("Authenticated user:", email); // Debug log
-    document.body.innerHTML = `<h2>Welcome, ${email}</h2><p>Checking SharePoint access...</p>`;
+    console.log("Authenticated user:", email);
+    document.body.innerHTML = `
+      <h2>Welcome, <span class="username">${email}</span></h2>
+      <p class="sharepoint-access">Checking SharePoint access...</p>
+    `;
     
-// Add 2-second delay before checking access
     setTimeout(async () => {
       try {
         const tokenResponse = await msalInstance.acquireTokenSilent({
           account: account,
           scopes: ['User.Read', 'Sites.Read.All']
         });
-        console.log("Token acquired:", tokenResponse.accessToken); // Debug log
+        console.log("Token acquired:", tokenResponse.accessToken);
         checkAccess(tokenResponse.accessToken, email);
       } catch (tokenError) {
         console.error("Token acquisition failed:", tokenError);
@@ -92,7 +166,7 @@
           showError("Authentication Failed", tokenError.message);
         }
       }
-    }, 3000); // 2-second delay
+    }, 3000);
   }).catch(err => {
     console.error("Redirect promise error:", err);
     showError("Login Error", err.message);
@@ -139,23 +213,8 @@
 
   function showError(title, message) {
     document.body.innerHTML = `
-      <div style="
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        background-color: #f4f6f8;
-        padding: 2rem;
-      ">
-        <div style="
-          background: white;
-          border-radius: 12px;
-          padding: 2rem;
-          max-width: 500px;
-          width: 100%;
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-          text-align: center;
-        ">
+      <div class="error-container">
+        <div class="error-card">
           <img 
             src="https://www.smart-infrastructure.com/wp-content/uploads/2019/06/SIG_LOGO_HOR_PNG-1.png" 
             alt="SIG Logo" 
@@ -166,17 +225,13 @@
             alt="Access Denied" 
             style="width: 100px; margin-bottom: 1rem;" 
           />
-          <h1 style="font-size: 1.8rem; color: #d8000c; margin-bottom: 1rem;">
-            ${title}
-          </h1>
-          <p style="font-size: 1rem; color: #444; margin-bottom: 1rem;">
-            ${message}
-          </p>
-          <p style="font-size: 0.9rem; color: #888;">
-            If you believe this is a mistake, please contact the Fleet Management Group.
-          </p>
+          <h1>${title}</h1>
+          <p>${message}</p>
+          <p class="contact">If you believe this is a mistake, please contact the Fleet Management Group.</p>
         </div>
       </div>
     `;
   }
 </script>
+</body>
+</html>
