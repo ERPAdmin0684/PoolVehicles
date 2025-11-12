@@ -47,9 +47,16 @@
           msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
           return;
         } else {
-          console.log("Attempting popup login...");
-          const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
-          account = popupResponse.account;
+              const isInPopupOrIframe = window !== window.parent || window.opener !== null;
+              if (isInPopupOrIframe) {
+                console.log("Running in popup or iframe, switching to redirect...");
+                msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
+                return;
+              } else {
+                console.log("Attempting popup login...");
+                const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
+                account = popupResponse.account;
+              }
         }
       } catch (popupError) {
         console.warn("Popup failed:", popupError);
