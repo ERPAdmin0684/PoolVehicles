@@ -39,26 +39,34 @@
     let account = response?.account || msalInstance.getAllAccounts()[0];
 
     if (!account) {
-                console.log("No account found, attempting login...");
-                try {
-                  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                  const isInPopupOrIframe = window !== window.parent || window.opener !== null;
-                
-                  if (isMobile || isInPopupOrIframe) {
-                    console.log("Using redirect login (mobile or popup detected)...");
-                    msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-                    return;
-                  } else {
-                    console.log("Using popup login...");
-                    const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
-                    account = popupResponse.account;
-                  }
-                } catch (popupError) {
-                  console.warn("Popup failed:", popupError);
-                  msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-                  return;
-                }
-
+      console.log("No account found, attempting login...");
+      try {
+        // Try loginPopup for desktop, loginRedirect for mobile
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobile) {
+          console.log("Mobile device detected, using redirect...");
+          msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
+          return;
+        } else {
+          console.log("Attempting popup login...");
+          const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
+          account = popupResponse.account;
+              const isInPopupOrIframe = window !== window.parent || window.opener !== null;
+              if (isInPopupOrIframe) {
+                console.log("Running in popup or iframe, switching to redirect...");
+                msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
+                return;
+              } else {
+                console.log("Attempting popup login...");
+                const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
+                account = popupResponse.account;
+              }
+        }
+      } catch (popupError) {
+        console.warn("Popup failed:", popupError);
+        msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
+        return;
+      }
     }
 
     if (!account?.username) {
