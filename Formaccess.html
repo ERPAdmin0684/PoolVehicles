@@ -10,21 +10,20 @@
       padding: 2rem;
     }
   </style>
-  <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js"></script>
+  <!-- Updated to a more recent version (as of late 2025) -->
+  <script src="https://alcdn.msauth.net/browser/4.26.0/js/msal-browser.min.js"></script>
 </head>
 <body>
   <h2>Checking access...</h2>
-
 <script>
   const msalConfig = {
     auth: {
       clientId: 'd13c0cca-d75f-4bc9-8dcb-b18315c40d0e',
       authority: 'https://login.microsoftonline.com/a456fbc2-921d-42a4-a7a8-fc0f343ede61',
-      redirectUri: window.location.href
-
+      redirectUri: window.location.href  // Ensure this exact URL is registered as a SPA redirect URI in Azure AD
     },
     cache: {
-      cacheLocation: 'localStorage' // Use localStorage instead of sessionStorage for better persistence
+      cacheLocation: 'localStorage'  // Good choice for persistence across tabs/sessions
     }
   };
 
@@ -34,80 +33,47 @@
 
   const msalInstance = new msal.PublicClientApplication(msalConfig);
 
-  msalInstance.handleRedirectPromise().then(async (response) => {
-    console.log("Redirect promise response:", response); // Debug log
-    let account = response?.account || msalInstance.getAllAccounts()[0];
+  // Always handle redirect promise first (critical for redirect flow)
+  msalInstance.handleRedirectPromise()
+    .then(async (response) => {
+      let account = response?.account || msalInstance.getAllAccounts()[0];
 
-    if (!account) {
-      console.log("No account found, attempting login...");
-      try {
-        // Try loginPopup for desktop, loginRedirect for mobile
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        if (isMobile) {
-          console.log("Mobile device detected, using redirect...");
-          msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-          return;
-        } else {
-          console.log("Attempting popup login...");
-          const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
-          account = popupResponse.account;
-              const isInPopupOrIframe = window !== window.parent || window.opener !== null;
-              if (isInPopupOrIframe) {
-                console.log("Running in popup or iframe, switching to redirect...");
-                msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-                return;
-              } else {
-                console.log("Attempting popup login...");
-                const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
-                account = popupResponse.account;
-              }
-        }
-      } catch (popupError) {
-        console.warn("Popup failed:", popupError);
-        msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-        return;
+      if (!account) {
+        // No authenticated account – start interactive login via redirect
+        await msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
+        return;  // Redirect will happen, code stops here
       }
-    }
 
-    if (!account?.username) {
-      showError("Account Error", "Unable to retrieve user information. Please try again or contact support.");
-      return;
-    }
+      const email = account.username;
+      console.log("Authenticated user:", email);
+      document.body.innerHTML = `<h2>Welcome, ${email}</h2><p>Checking SharePoint access...</p>`;
 
-    const email = account.username;
-    console.log("Authenticated user:", email); // Debug log
-    document.body.innerHTML = `<h2>Welcome, ${email}</h2><p>Checking SharePoint access...</p>`;
-    
-// Add 2-second delay before checking access
-    setTimeout(async () => {
-      try {
-        const tokenResponse = await msalInstance.acquireTokenSilent({
-          account: account,
-          scopes: ['User.Read', 'Sites.Read.All']
-        });
-        console.log("Token acquired:", tokenResponse.accessToken); // Debug log
-        checkAccess(tokenResponse.accessToken, email);
-      } catch (tokenError) {
-        console.error("Token acquisition failed:", tokenError);
-        if (tokenError.name === "InteractionRequiredAuthError") {
-          try {
-            const tokenResponse = await msalInstance.acquireTokenPopup({
+      // Small delay for better UX
+      setTimeout(async () => {
+        try {
+          const tokenResponse = await msalInstance.acquireTokenSilent({
+            account: account,
+            scopes: ['User.Read', 'Sites.Read.All']
+          });
+          checkAccess(tokenResponse.accessToken, email);
+        } catch (tokenError) {
+          console.error("Silent token acquisition failed:", tokenError);
+          if (tokenError instanceof msal.InteractionRequiredAuthError) {
+            // Fallback to interactive redirect (avoids nested popup issues entirely)
+            await msalInstance.acquireTokenRedirect({
               account: account,
               scopes: ['User.Read', 'Sites.Read.All']
             });
-            checkAccess(tokenResponse.accessToken, email);
-          } catch (fallbackError) {
-            showError("Authentication Failed", fallbackError.message);
+          } else {
+            showError("Authentication Failed", tokenError.message || "Unknown error");
           }
-        } else {
-          showError("Authentication Failed", tokenError.message);
         }
-      }
-    }, 3000); // 2-second delay
-  }).catch(err => {
-    console.error("Redirect promise error:", err);
-    showError("Login Error", err.message);
-  });
+      }, 2000);
+    })
+    .catch((err) => {
+      console.error("Redirect handling error:", err);
+      showError("Login Error", err.message || "Redirect failed");
+    });
 
   async function checkAccess(token, userEmail) {
     try {
@@ -118,26 +84,31 @@
           Accept: "application/json"
         }
       });
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Graph API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
+
       const data = await response.json();
       const items = data.value || [];
+
       if (items.length === 0) {
         showError("Access Denied", "Access list is empty. Please contact the administrator.");
         return;
       }
+
       const emailList = items.map(item => {
         const fields = item.fields || {};
-        return (fields.Username || fields.TitleId || fields.Title || "").trim();
+        return (fields.Username || fields.TitleId || fields.Title || "").trim().toLowerCase();
       }).filter(email => email !== "");
+
       if (emailList.length === 0) {
         showError("Access Denied", "No email records found in the list.");
         return;
       }
-      const matched = emailList.find(e => e.toLowerCase() === userEmail.toLowerCase());
-      if (matched) {
+
+      if (emailList.includes(userEmail.toLowerCase())) {
         window.location.replace("https://forms.cloud.microsoft/r/Saurgpg1XQ");
       } else {
         showError("Not Authorized", `${userEmail} is not on the approved drivers list.`);
@@ -167,15 +138,15 @@
           box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
           text-align: center;
         ">
-          <img 
-            src="https://www.smart-infrastructure.com/wp-content/uploads/2019/06/SIG_LOGO_HOR_PNG-1.png" 
-            alt="SIG Logo" 
-            style="width: 160px; margin-bottom: 1.5rem;" 
+          <img
+            src="https://www.smart-infrastructure.com/wp-content/uploads/2019/06/SIG_LOGO_HOR_PNG-1.png"
+            alt="SIG Logo"
+            style="width: 160px; margin-bottom: 1.5rem;"
           />
-          <img 
-            src="https://cdn-icons-png.flaticon.com/512/1828/1828843.png" 
-            alt="Access Denied" 
-            style="width: 100px; margin-bottom: 1rem;" 
+          <img
+            src="https://cdn-icons-png.flaticon.com/512/1828/1828843.png"
+            alt="Access Denied"
+            style="width: 100px; margin-bottom: 1rem;"
           />
           <h1 style="font-size: 1.8rem; color: #d8000c; margin-bottom: 1rem;">
             ${title}
@@ -191,3 +162,5 @@
     `;
   }
 </script>
+</body>
+</html>
