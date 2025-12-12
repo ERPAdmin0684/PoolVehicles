@@ -58,18 +58,21 @@ const msalInstance = new msal.PublicClientApplication(msalConfig);
 
         const isPopup = window.opener !== null;   // detect popup/iframe
 
-        // No account yet → login required
-        if (!account) {
-
-            if (isPopup) {
-                // Popup CANNOT run loginPopup → FORCE redirect
-                return msalInstance.loginRedirect({ scopes: SCOPES });
-            } else {
-                // Normal browser window → popup login allowed
-                const popupResp = await msalInstance.loginPopup({ scopes: SCOPES });
-                account = popupResp.account;
+        async function acquireToken(account) {
+            try {
+                return await msalInstance.acquireTokenSilent({
+                    account,
+                    scopes: SCOPES
+                });
+            } catch (err) {
+                console.warn("Silent token failed, redirecting:", err);
+                return msalInstance.acquireTokenRedirect({
+                    account,
+                    scopes: SCOPES
+                });
             }
         }
+
 
         if (!account) {
             return showError("Account Error", "Unable to load user account.");
@@ -107,7 +110,7 @@ async function acquireToken(account) {
         console.warn("Silent acquisition failed:", silentError);
 
         // fallback popup token
-        return await msalInstance.acquireTokenPopup({
+        return msalInstance.acquireTokenRedirect({
             account,
             scopes: SCOPES
         });
