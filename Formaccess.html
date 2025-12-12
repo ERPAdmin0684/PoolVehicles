@@ -10,8 +10,8 @@
       padding: 2rem;
     }
   </style>
-  <!-- Updated to a more recent version (as of late 2025) -->
-  <script src="https://alcdn.msauth.net/browser/4.26.0/js/msal-browser.min.js"></script>
+  <!-- Latest version as of December 2025 -->
+  <script src="https://alcdn.msauth.net/browser/4.27.0/js/msal-browser.min.js"></script>
 </head>
 <body>
   <h2>Checking access...</h2>
@@ -20,10 +20,10 @@
     auth: {
       clientId: 'd13c0cca-d75f-4bc9-8dcb-b18315c40d0e',
       authority: 'https://login.microsoftonline.com/a456fbc2-921d-42a4-a7a8-fc0f343ede61',
-      redirectUri: window.location.href  // Ensure this exact URL is registered as a SPA redirect URI in Azure AD
+      redirectUri: window.location.href  // Must be exactly registered as SPA redirect URI in Azure AD
     },
     cache: {
-      cacheLocation: 'localStorage'  // Good choice for persistence across tabs/sessions
+      cacheLocation: 'localStorage'
     }
   };
 
@@ -33,47 +33,57 @@
 
   const msalInstance = new msal.PublicClientApplication(msalConfig);
 
-  // Always handle redirect promise first (critical for redirect flow)
+  // Critical: Always handle the redirect promise first
   msalInstance.handleRedirectPromise()
-    .then(async (response) => {
-      let account = response?.account || msalInstance.getAllAccounts()[0];
+    .then((response) => {
+      let account = response?.account;
+
+      // If we have a response with account, or there are cached accounts, set the first one as active
+      if (!account && msalInstance.getAllAccounts().length > 0) {
+        account = msalInstance.getAllAccounts()[0];
+        msalInstance.setActiveAccount(account);
+      }
 
       if (!account) {
-        // No authenticated account – start interactive login via redirect
-        await msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-        return;  // Redirect will happen, code stops here
+        // No account – initiate login redirect
+        msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
+        return;
       }
 
       const email = account.username;
       console.log("Authenticated user:", email);
       document.body.innerHTML = `<h2>Welcome, ${email}</h2><p>Checking SharePoint access...</p>`;
 
-      // Small delay for better UX
-      setTimeout(async () => {
-        try {
-          const tokenResponse = await msalInstance.acquireTokenSilent({
-            account: account,
-            scopes: ['User.Read', 'Sites.Read.All']
-          });
-          checkAccess(tokenResponse.accessToken, email);
-        } catch (tokenError) {
-          console.error("Silent token acquisition failed:", tokenError);
-          if (tokenError instanceof msal.InteractionRequiredAuthError) {
-            // Fallback to interactive redirect (avoids nested popup issues entirely)
-            await msalInstance.acquireTokenRedirect({
-              account: account,
-              scopes: ['User.Read', 'Sites.Read.All']
-            });
-          } else {
-            showError("Authentication Failed", tokenError.message || "Unknown error");
-          }
-        }
-      }, 2000);
+      // Proceed to acquire token silently
+      acquireTokenAndCheckAccess(account);
     })
     .catch((err) => {
       console.error("Redirect handling error:", err);
-      showError("Login Error", err.message || "Redirect failed");
+      showError("Login Error", err.message || "An error occurred during login.");
     });
+
+  async function acquireTokenAndCheckAccess(account) {
+    try {
+      const tokenResponse = await msalInstance.acquireTokenSilent({
+        account: account,
+        scopes: ['User.Read', 'Sites.Read.All']
+      });
+      console.log("Token acquired silently");
+      checkAccess(tokenResponse.accessToken, account.username);
+    } catch (tokenError) {
+      console.error("Silent token acquisition failed:", tokenError);
+
+      if (tokenError instanceof msal.InteractionRequiredAuthError) {
+        // Need user interaction – redirect again to acquire token
+        await msalInstance.acquireTokenRedirect({
+          account: account,
+          scopes: ['User.Read', 'Sites.Read.All']
+        });
+      } else {
+        showError("Authentication Failed", tokenError.message || "Unable to acquire token.");
+      }
+    }
+  }
 
   async function checkAccess(token, userEmail) {
     try {
