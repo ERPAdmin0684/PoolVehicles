@@ -10,184 +10,200 @@
       padding: 2rem;
     }
   </style>
+
+  <!-- MSAL -->
   <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js"></script>
 </head>
+
 <body>
   <h2>Checking access...</h2>
 
 <script>
-  const msalConfig = {
-    auth: {
-      clientId: 'd13c0cca-d75f-4bc9-8dcb-b18315c40d0e',
-      authority: 'https://login.microsoftonline.com/a456fbc2-921d-42a4-a7a8-fc0f343ede61',
-      redirectUri: window.location.href
+/* ------------------------------------------------------------
+   CONFIGURATION
+-------------------------------------------------------------*/
 
+const msalConfig = {
+    auth: {
+        clientId: "d13c0cca-d75f-4bc9-8dcb-b18315c40d0e",
+        authority: "https://login.microsoftonline.com/a456fbc2-921d-42a4-a7a8-fc0f343ede61",
+        
+        // IMPORTANT: Must be STATIC, NOT window.location.href
+        redirectUri: "https://erpadmin0684.github.io/PoolVehicles/Formaccess.html"
     },
     cache: {
-      cacheLocation: 'localStorage' // Use localStorage instead of sessionStorage for better persistence
+        cacheLocation: "localStorage"
     }
-  };
+};
 
-  const SHAREPOINT_HOSTNAME = 'smartinfrastructure.sharepoint.com';
-  const SITE_PATH = 'teams/Pool_Vehicles2';
-  const LIST_NAME = 'Approved_Driver_List';
+const SHAREPOINT_HOSTNAME = "smartinfrastructure.sharepoint.com";
+const SITE_PATH = "teams/Pool_Vehicles2";
+const LIST_NAME = "Approved_Driver_List";
 
-  const msalInstance = new msal.PublicClientApplication(msalConfig);
+const SCOPES = ["User.Read", "Sites.Read.All"];
 
-  msalInstance.handleRedirectPromise().then(async (response) => {
-    console.log("Redirect promise response:", response); // Debug log
-    let account = response?.account || msalInstance.getAllAccounts()[0];
+const msalInstance = new msal.PublicClientApplication(msalConfig);
 
-    if (!account) {
-      console.log("No account found, attempting login...");
-      try {
-        // Try loginPopup for desktop, loginRedirect for mobile
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        if (isMobile) {
-          console.log("Mobile device detected, using redirect...");
-          msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-          return;
-        } else {
-          console.log("Attempting popup login...");
-          const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
-          account = popupResponse.account;
-              const isInPopupOrIframe = window !== window.parent || window.opener !== null;
-              if (isInPopupOrIframe) {
-                console.log("Running in popup or iframe, switching to redirect...");
-                msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-                return;
-              } else {
-                console.log("Attempting popup login...");
-                const popupResponse = await msalInstance.loginPopup({ scopes: ['User.Read', 'Sites.Read.All'] });
-                account = popupResponse.account;
-              }
-        }
-      } catch (popupError) {
-        console.warn("Popup failed:", popupError);
-        msalInstance.loginRedirect({ scopes: ['User.Read', 'Sites.Read.All'] });
-        return;
-      }
-    }
 
-    if (!account?.username) {
-      showError("Account Error", "Unable to retrieve user information. Please try again or contact support.");
-      return;
-    }
+/* ------------------------------------------------------------
+   MAIN LOGIN FLOW
+-------------------------------------------------------------*/
 
-    const email = account.username;
-    console.log("Authenticated user:", email); // Debug log
-    document.body.innerHTML = `<h2>Welcome, ${email}</h2><p>Checking SharePoint access...</p>`;
-    
-// Add 2-second delay before checking access
-    setTimeout(async () => {
-      try {
-        const tokenResponse = await msalInstance.acquireTokenSilent({
-          account: account,
-          scopes: ['User.Read', 'Sites.Read.All']
-        });
-        console.log("Token acquired:", tokenResponse.accessToken); // Debug log
-        checkAccess(tokenResponse.accessToken, email);
-      } catch (tokenError) {
-        console.error("Token acquisition failed:", tokenError);
-        if (tokenError.name === "InteractionRequiredAuthError") {
-          try {
-            const tokenResponse = await msalInstance.acquireTokenPopup({
-              account: account,
-              scopes: ['User.Read', 'Sites.Read.All']
-            });
-            checkAccess(tokenResponse.accessToken, email);
-          } catch (fallbackError) {
-            showError("Authentication Failed", fallbackError.message);
-          }
-        } else {
-          showError("Authentication Failed", tokenError.message);
-        }
-      }
-    }, 3000); // 2-second delay
-  }).catch(err => {
-    console.error("Redirect promise error:", err);
-    showError("Login Error", err.message);
-  });
+(async function authenticate() {
 
-  async function checkAccess(token, userEmail) {
     try {
-      const url = `https://graph.microsoft.com/v1.0/sites/${SHAREPOINT_HOSTNAME}:/${SITE_PATH}:/lists/${LIST_NAME}/items?$expand=fields&$top=999`;
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json"
-        }
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Graph API error: ${response.status} ${response.statusText} - ${errorText}`);
-      }
-      const data = await response.json();
-      const items = data.value || [];
-      if (items.length === 0) {
-        showError("Access Denied", "Access list is empty. Please contact the administrator.");
-        return;
-      }
-      const emailList = items.map(item => {
-        const fields = item.fields || {};
-        return (fields.Username || fields.TitleId || fields.Title || "").trim();
-      }).filter(email => email !== "");
-      if (emailList.length === 0) {
-        showError("Access Denied", "No email records found in the list.");
-        return;
-      }
-      const matched = emailList.find(e => e.toLowerCase() === userEmail.toLowerCase());
-      if (matched) {
-        window.location.replace("https://forms.cloud.microsoft/r/Saurgpg1XQ");
-      } else {
-        showError("Not Authorized", `${userEmail} is not on the approved drivers list.`);
-      }
-    } catch (error) {
-      console.error("CheckAccess error:", error);
-      showError("Access Error", error.message);
-    }
-  }
+        // MUST RUN FIRST: handles the redirect response
+        const redirectResult = await msalInstance.handleRedirectPromise();
+        let account = redirectResult?.account || msalInstance.getAllAccounts()[0];
 
-  function showError(title, message) {
+        const isPopup = window.opener !== null;   // detect popup/iframe
+
+        // No account yet → login required
+        if (!account) {
+
+            if (isPopup) {
+                // Popup CANNOT run loginPopup → FORCE redirect
+                return msalInstance.loginRedirect({ scopes: SCOPES });
+            } else {
+                // Normal browser window → popup login allowed
+                const popupResp = await msalInstance.loginPopup({ scopes: SCOPES });
+                account = popupResp.account;
+            }
+        }
+
+        if (!account) {
+            return showError("Account Error", "Unable to load user account.");
+        }
+
+        // Show user email while loading
+        const email = account.username;
+        document.body.innerHTML = `<h2>Welcome, ${email}</h2><p>Checking SharePoint access…</p>`;
+
+        // Acquire token → silent first, fallback popup
+        const tokenResult = await acquireToken(account);
+
+        // Check SharePoint Access
+        checkAccess(tokenResult.accessToken, email);
+
+    } catch (err) {
+        console.error("AUTH ERROR:", err);
+        showError("Authentication Failed", err.message);
+    }
+
+})();
+
+
+/* ------------------------------------------------------------
+   TOKEN ACQUISITION
+-------------------------------------------------------------*/
+async function acquireToken(account) {
+    try {
+        return await msalInstance.acquireTokenSilent({
+            account,
+            scopes: SCOPES
+        });
+
+    } catch (silentError) {
+        console.warn("Silent acquisition failed:", silentError);
+
+        // fallback popup token
+        return await msalInstance.acquireTokenPopup({
+            account,
+            scopes: SCOPES
+        });
+    }
+}
+
+
+/* ------------------------------------------------------------
+   SHAREPOINT ACCESS CHECK
+-------------------------------------------------------------*/
+
+async function checkAccess(token, userEmail) {
+    try {
+
+        const url =
+          `https://graph.microsoft.com/v1.0/sites/${SHAREPOINT_HOSTNAME}:/${SITE_PATH}:/lists/${LIST_NAME}/items?$expand=fields&$top=999`;
+
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/json"
+            }
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Graph API error: ${response.status} - ${txt}`);
+        }
+
+        const data = await response.json();
+        const items = data.value || [];
+
+        const emailList = items.map(item => {
+            const f = item.fields || {};
+            return (f.Username || f.TitleId || f.Title || "").trim();
+        }).filter(e => e !== "");
+
+        const matched = emailList.find(x => x.toLowerCase() === userEmail.toLowerCase());
+
+        if (matched) {
+            window.location.replace("https://forms.cloud.microsoft/r/Saurgpg1XQ");
+        } else {
+            showError("Not Authorized", `${userEmail} is not on the approved drivers list.`);
+        }
+
+    } catch (err) {
+        console.error("ACCESS ERROR:", err);
+        showError("Access Error", err.message);
+    }
+}
+
+
+/* ------------------------------------------------------------
+   ERROR UI
+-------------------------------------------------------------*/
+
+function showError(title, message) {
     document.body.innerHTML = `
       <div style="
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        background-color: #f4f6f8;
-        padding: 0rem;
+          display:flex;
+          justify-content:center;
+          align-items:center;
+          height:100vh;
+          background:#f4f6f8;
       ">
         <div style="
-          background: white;
-          border-radius: 12px;
-          padding: 2rem;
-          max-width: 500px;
-          width: 100%;
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-          text-align: center;
+            background:white;
+            padding:2rem;
+            border-radius:12px;
+            max-width:500px;
+            width:100%;
+            text-align:center;
+            box-shadow:0 8px 20px rgba(0,0,0,0.1);
         ">
-          <img 
-            src="https://www.smart-infrastructure.com/wp-content/uploads/2019/06/SIG_LOGO_HOR_PNG-1.png" 
-            alt="SIG Logo" 
-            style="width: 160px; margin-bottom: 1.5rem;" 
-          />
-          <img 
-            src="https://cdn-icons-png.flaticon.com/512/1828/1828843.png" 
-            alt="Access Denied" 
-            style="width: 100px; margin-bottom: 1rem;" 
-          />
-          <h1 style="font-size: 1.8rem; color: #d8000c; margin-bottom: 1rem;">
+          <img src="https://www.smart-infrastructure.com/wp-content/uploads/2019/06/SIG_LOGO_HOR_PNG-1.png"
+               style="width:160px;margin-bottom:1.5rem" />
+
+          <img src="https://cdn-icons-png.flaticon.com/512/1828/1828843.png"
+               style="width:100px;margin-bottom:1rem" />
+
+          <h1 style="font-size:1.8rem;color:#d8000c;margin-bottom:1rem;">
             ${title}
           </h1>
-          <p style="font-size: 0.9rem; color: #444; margin-bottom: 1rem;">
+
+          <p style="font-size:0.9rem;color:#444;margin-bottom:1rem;">
             ${message}
           </p>
-          <p style="font-size: 0.8rem; color: #888;">
+
+          <p style="font-size:0.8rem;color:#888;">
             If you believe this is a mistake, please contact the Fleet Management Group.
           </p>
         </div>
       </div>
     `;
-  }
+}
+
 </script>
+</body>
+</html>
